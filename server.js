@@ -2,6 +2,18 @@ let http = require('http');
 // local
 let { Pool } = require('pg');
 
+const admin = require('firebase-admin');
+
+// Load service account key
+const serviceAccount = require('./serviceAccountKey.json');
+
+// Initialize Firebase Admin
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+// local database connection
+
 // let pool = new Pool({
 //     user: "postgres",
 //     host: "localhost",
@@ -10,7 +22,7 @@ let { Pool } = require('pg');
 //     port: 5432
 // })
 
-// prod
+// prod database connection
 
 // const { Pool } = require('pg');
 
@@ -36,6 +48,8 @@ http.createServer(async (req, res) => {
         res.end();
         return;
     }
+
+    
     // user registration
 if (req.url == '/userRegestration' && req.method == 'POST') {
     let body = '';
@@ -200,6 +214,46 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
                 [data.user_id, data.user_name, data.product_id, data.product_name, data.quantity, data.total_price]
             );
 
+            let tokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1', [data.user_id]);
+            let adminTokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id IN (SELECT id FROM users WHERE role=$1)', ['admin']);
+            if (adminTokenResult.rows.length > 0) {
+                let adminFcmToken = adminTokenResult.rows[0].user_fcm;
+                let message = {
+                    notification: {
+                        title: "New Order Placed",
+                        body: `You have a new order from ${data.user_name} for ${data.product_name}`
+                    },
+                    token: adminFcmToken
+                };  
+                try {
+                    await admin.messaging().send(message);
+                    console.log("FCM notification sent");
+                }
+                catch (err) {
+                    console.log("FCM error:", err);
+                }
+            }
+            
+
+            if (tokenResult.rows.length > 0) {
+                let userFcmToken = tokenResult.rows[0].user_fcm;
+                let message = {
+                    notification: {
+                        title: "Order Placed",
+                        body: `Your order ${result.rows[0].id} has been placed successfully!`
+                    },
+                    token: userFcmToken
+                };
+                try {
+                    await admin.messaging().send(message);
+                    console.log("FCM notification sent");
+                }
+                catch (err) {   
+                    console.log("FCM error:", err);
+                }
+            }
+
+
 
             res.end(
                 JSON.stringify(
@@ -214,33 +268,69 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
         })
     }
     // user changing order status
-    else if (req.url == '/updateOrder' && req.method == 'PATCH') {
-        let body = '';
-        req.on('data', chucnk => {
-            body += chucnk.toString();
-        })
-        req.on('end', async () => {
-            let data = JSON.parse(body);
-            let id = data.id;
-            // if (data.quantity) {
-                let result = await pool.query('UPDATE orders SET quantity=$1 WHERE id=$2 RETURNING *',
-                    [data.quantity, id]
-                )
+else if (req.url == '/updateOrder' && req.method == 'PATCH') {
 
-                console.log(result.rows[0])
-                // res.writeHead(200);
-                res.end(
-                    JSON.stringify(
-                        {
-                            status: 201,
-                            response: 'success',
-                            data: result.rows[0]
-                        }
-                    )
-                )
-            // }
-        })
-    }
+    let body = '';
+
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
+
+    req.on('end', async () => {
+
+        let data = JSON.parse(body);
+        let id = data.id;
+
+        let result = await pool.query(
+            'UPDATE orders SET quantity=$1 WHERE id=$2 RETURNING *',
+            [data.quantity, id]
+        );
+
+        if (result.rows.length === 0) {
+
+            res.end(JSON.stringify({
+                status: 404,
+                response: false,
+                message: 'Order not found'
+            }));
+
+            return;
+        }
+
+        // Get FCM token
+        let tokenResult = await pool.query(
+            'SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1',
+            [data.user_id]
+        );
+
+        if (tokenResult.rows.length > 0) {
+
+            let userFcmToken = tokenResult.rows[0].user_fcm;
+
+            let message = {
+                notification: {
+                    title: "Order Updated",
+                    body: `Your order ${id} quantity updated to ${data.quantity}`
+                },
+                token: userFcmToken
+            };
+
+            try {
+                await admin.messaging().send(message);
+                console.log("FCM notification sent");
+            } catch (err) {
+                console.log("FCM error:", err);
+            }
+        }
+
+        res.end(JSON.stringify({
+            status: 200,
+            response: true,
+            data: result.rows[0]
+        }));
+
+    });
+}
     // getting all orders
 
     else if (req.method == 'GET' && req.url.startsWith('/getOrders/')) {
@@ -272,27 +362,59 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
     }
 
     // admin changing order status
-    else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
-        let body = '';
-        req.on('data', chucnk => {
-            body += chucnk.toString();
-        })
-        console.log(body)
-        req.on('end', async () => {
-            let data = JSON.parse(body);
-            console.log(data)
-            let result = await pool.query('UPDATE orders SET order_status=$1 WHERE id=$2 AND user_id=$3', [data.order_status, data.id, data.user_id]);
-            res.end(
-                JSON.stringify(
-                    {
-                        status: 200,
-                        response: 'true',
-                        data: result.rows[0]
-                    }
-                )
-            )
-        })
-    }
+else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
+
+    let body = '';
+
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
+
+    req.on('end', async () => {
+
+        let data = JSON.parse(body);
+
+        let result = await pool.query(
+            'UPDATE orders SET order_status=$1 WHERE id=$2 AND user_id=$3 RETURNING *',
+            [data.order_status, data.id, data.user_id]
+        );
+
+        let tokenResult = await pool.query(
+            'SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1',
+            [data.user_id]
+        );
+
+        if (tokenResult.rows.length > 0) {
+
+            let userFcmToken = tokenResult.rows[0].user_fcm;
+
+            let message = {
+                notification: {
+                    title: "Order Status Updated",
+                    body: `Your order ${data.id} status updated to ${data.order_status}`
+                },
+                token: userFcmToken
+            };
+
+            try {
+                await admin.messaging().send(message);
+                console.log("FCM notification sent");
+            }
+            catch (err) {
+                console.log("FCM error:", err);
+            }
+
+        }
+
+        res.end(JSON.stringify({
+            status: 200,
+            response: true,
+            data: result.rows[0]
+        }));
+
+    });
+
+}
     // add to wish list
     else if (req.url == '/addToWishlist' && req.method == 'POST') {
         let body = '';
@@ -389,6 +511,44 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
             )
         )
     }
+else if(req.url == '/save-token' && req.method == 'POST'){
+    let body = '';
+    console.log("Saving token...");
+
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
+    console.log(body)
+
+    req.on('end', async () => {
+        try{
+            let data = JSON.parse(body);
+            console.log(data)
+
+            let result = await pool.query(
+                `INSERT INTO usersfcmtoken(user_id,user_fcm)
+                 VALUES($1,$2)
+                 ON CONFLICT (user_id)
+                 DO UPDATE SET user_fcm = EXCLUDED.user_fcm
+                 RETURNING *`,
+                [data.user_id, data.user_fcm]
+            );
+
+            res.end(JSON.stringify({
+                status:200,
+                response:true,
+                data: result.rows[0]
+            }));
+
+        }catch(err){
+            console.log(err);
+            res.end(JSON.stringify({
+                status:500,
+                message:"Server error"
+            }));
+        }
+    })
+}
 
 
 }).listen(PORT, () => {
