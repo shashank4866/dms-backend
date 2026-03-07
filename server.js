@@ -1,6 +1,6 @@
 let http = require('http');
 // local
-// let { Pool } = require('pg');
+let { Pool } = require('pg');
 
 // let pool = new Pool({
 //     user: "postgres",
@@ -37,30 +37,32 @@ http.createServer(async (req, res) => {
         return;
     }
     // user registration
-    if (req.url == '/userRegestration' && req.method == 'POST') {
-        let body = '';
+if (req.url == '/userRegestration' && req.method == 'POST') {
+    let body = '';
 
-        req.on('data', chunck => {
-            body += chunck.toString();
-        })
-        let role = 'user';
-        req.on('end', async () => {
-            let data = JSON.parse(body);
-            let result = await pool.query('INSERT INTO users(name,email,password,phone,role,user_img)',
-                [data.name, data.email, data.password, data.phone, role, data.user_img]
-            );
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
 
-            res.end(
-                JSON.stringify(
-                    {
-                        status: 200,
-                        response: "true",
-                        data: result.rows
-                    }
-                )
-            )
-        })
-    }
+    let role = 'user';
+
+    req.on('end', async () => {
+        let data = JSON.parse(body);
+
+        let result = await pool.query(
+            'INSERT INTO users(name,email,password,phone,role,user_img) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
+            [data.name, data.email, data.password, data.phone, role, data.user_img]
+        );
+
+        res.end(
+            JSON.stringify({
+                status: 200,
+                response: true,
+                data: result.rows[0]
+            })
+        );
+    });
+}
     // user login
     else if (req.url == '/login' && req.method == 'POST') {
         let body = '';
@@ -390,5 +392,5 @@ http.createServer(async (req, res) => {
 
 
 }).listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log(`Server running on port ${PORT}`);
 })
