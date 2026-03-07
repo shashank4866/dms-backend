@@ -2,10 +2,11 @@ let http = require('http');
 // local
 let { Pool } = require('pg');
 
-const admin = require('firebase-admin');
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-// Load service account key
-const serviceAccount = require('./serviceAccountKey.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 // Initialize Firebase Admin
 admin.initializeApp({
