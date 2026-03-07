@@ -47,7 +47,7 @@ http.createServer(async (req, res) => {
         req.on('end', async () => {
             let data = JSON.parse(body);
             let result = await pool.query('INSERT INTO users(name,email,password,phone,role,user_img)',
-                [body.name, body.email, body.password, body.phone, role, body.user_img]
+                [data.name, data.email, data.password, data.phone, role, data.user_img]
             );
 
             res.end(
