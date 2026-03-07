@@ -389,6 +389,6 @@ http.createServer(async (req, res) => {
     }
 
 
-}).listen(3001, PORT, () => {
+}).listen(PORT, () => {
   console.log("Server running on port", PORT);
 })
