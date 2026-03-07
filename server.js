@@ -85,36 +85,60 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
     });
 }
     // user login
-    else if (req.url == '/login' && req.method == 'POST') {
-        let body = '';
-        req.on('data', chucnk => {
-            body += chucnk
-        })
+  else if (req.url == '/login' && req.method == 'POST') {
 
-        req.on('end', async () => {
+    let body = '';
+
+    req.on('data', chunk => {
+        body += chunk.toString();
+    });
+
+    req.on('end', async () => {
+
+        try {
+
             let data = JSON.parse(body);
-            console.log(data)
-            let result = await pool.query('SELECT * FROM users WHERE email=$1 AND password=$2 ', [data.email, data.password]);
-            // base64 to image url
-            // if (result.rows.length > 0) {
-                let user = result.rows[0];
-                if (user.user_img && Buffer.isBuffer(user.user_img)) {
-                    user.user_img = user.user_img.toString('base64');
-                }
-            // }
 
-            console.log(result)
-            res.end(
-                JSON.stringify(
-                    {
-                        status: 200,
-                        response: 'true',
-                        data: user
-                    }
-                )
-            )
-        })
-    }
+            let result = await pool.query(
+                'SELECT * FROM users WHERE email=$1 AND password=$2',
+                [data.email, data.password]
+            );
+
+            if (result.rows.length === 0) {
+                res.end(JSON.stringify({
+                    status:401,
+                    response:false,
+                    message:"Invalid email or password"
+                }));
+                return;
+            }
+
+            let user = result.rows[0];
+
+            if (user.user_img && Buffer.isBuffer(user.user_img)) {
+                user.user_img = user.user_img.toString('base64');
+            }
+
+            res.end(JSON.stringify({
+                status:200,
+                response:true,
+                data:user
+            }));
+
+        } catch(err) {
+
+            console.log("LOGIN ERROR:", err);
+
+            res.end(JSON.stringify({
+                status:500,
+                message:"Server error"
+            }));
+
+        }
+
+    });
+
+}
 
     // get all users
     else if (req.url == '/getUsers' && req.method == 'GET') {
@@ -142,7 +166,7 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
         req.on('data', chunk => {
             body += chunk.toString();
         }); 
-        req.on('data',async ()=>{
+        req.on('end',async ()=>{
             let data=JSON.parse(body);
             let result = await pool.query('UPDATE users SET user_img=$1 WHERE id=$2',[data.user_img,data.id]);
 
