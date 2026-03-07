@@ -3,15 +3,15 @@ let http = require('http');
 let { Pool } = require('pg');
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
+const admin = require('firebase-admin');
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
 
 // Initialize Firebase Admin
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+// admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount)
+// });
 
 // local database connection
 
