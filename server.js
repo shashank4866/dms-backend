@@ -1,17 +1,32 @@
 let http = require('http');
 // local
 let { Pool } = require('pg');
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 const admin = require('firebase-admin');
+
+
+
+// production setup
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+// prod database connection
+
+// const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+
+// local setup
+// const serviceAccount = require('./serviceAccountKey.json');
+// Initialize Firebase Admin
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
 
-// Initialize Firebase Admin
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount)
-// });
 
 // local database connection
 
@@ -23,16 +38,7 @@ admin.initializeApp({
 //     port: 5432
 // })
 
-// prod database connection
 
-// const { Pool } = require('pg');
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 
@@ -114,6 +120,28 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
                 }
             )
         )
+    }
+    // update user profile
+    else if (req.url == '/updateProfile' && req.method == 'PATCH') {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        }); 
+        req.on('data',async ()=>{
+            let data=JSON.parse(body);
+            let result = await pool.query('UPDATE users SET user_img=$1 WHERE id=$2',[data.user_img,data.id]);
+
+            res.end(
+                JSON.stringify(
+                    {
+                        status:200,
+                        resposne:"user profile upadted succesfully",
+                        data:result.rows
+                    }
+                )
+            )
+
+        })
     }
     // getting all products
     else if (req.url == '/getProducts' && req.method == 'GET') {
