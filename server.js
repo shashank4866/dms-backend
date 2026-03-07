@@ -95,13 +95,21 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
             let data = JSON.parse(body);
             console.log(data)
             let result = await pool.query('SELECT * FROM users WHERE email=$1 AND password=$2 ', [data.email, data.password]);
+            // base64 to image url
+            // if (result.rows.length > 0) {
+                let user = result.rows[0];
+                if (user.user_img && Buffer.isBuffer(user.user_img)) {
+                    user.user_img = user.user_img.toString('base64');
+                }
+            // }
+
             console.log(result)
             res.end(
                 JSON.stringify(
                     {
                         status: 200,
                         response: 'true',
-                        data: result.rows
+                        data: user
                     }
                 )
             )
@@ -111,12 +119,19 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
     // get all users
     else if (req.url == '/getUsers' && req.method == 'GET') {
         let result = await pool.query('SELECT * FROM users');
+        // badse to convert image buffer to base64 string
+        let users = result.rows.map(user => {
+            if (user.user_img && Buffer.isBuffer(user.user_img)) {
+                user.user_img = user.user_img.toString('base64');
+            }
+            return user;
+        });
         res.end(
             JSON.stringify(
                 {
                     status: 200,
                     response: 'true',
-                    data: result.rows
+                    data: users
                 }
             )
         )
@@ -467,12 +482,20 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
     else if (req.method == 'GET' && req.url.startsWith('/getWishlist/')) {
         let id = req.url.split('/')[2];
         let result = await pool.query('SELECT * FROM wishlist WHERE user_id=$1', [id]);
+        // badse to convert image buffer to base64 string
+        let wishlistItems = result.rows.map(item => {
+            if (item.image_url && Buffer.isBuffer(item.image_url)) {
+                item.image_url = item.image_url.toString('base64');
+            }
+            return item;
+        }
+        );
         res.end(
             JSON.stringify(
                 {
                     status: 200,
                     response: 'true',
-                    data: result.rows
+                    data: whishlistItems
                 }
             )
         )
@@ -501,12 +524,19 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
     else if (req.method == 'GET' && req.url.startsWith('/getCart/')) {
         let id = req.url.split('/')[2];
         let result = await pool.query('SELECT * FROM cart WHERE user_id=$1', [id]);
+        // badse to convert image buffer to base64 string
+        let cartItems = result.rows.map(item => {
+            if (item.image_url && Buffer.isBuffer(item.image_url)) {
+                item.image_url = item.image_url.toString('base64');
+            }
+            return item;
+        }); 
         res.end(
             JSON.stringify(
                 {
                     status: 200,
                     response: 'true',
-                    data: result.rows
+                    data: cartItems
                 }
             )
         )
