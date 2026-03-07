@@ -519,7 +519,7 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
                 {
                     status: 200,
                     response: 'true',
-                    data: whishlistItems
+                    data: wishlistItems
                 }
             )
         )
