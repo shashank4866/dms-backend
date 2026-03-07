@@ -1,13 +1,28 @@
 let http = require('http');
-let { Pool } = require('pg');
+// local
+// let { Pool } = require('pg');
 
-let pool = new Pool({
-    user: "postgres",
-    host: "localhost",
-    database: "DMS",
-    password: "admin",
-    port: 5432
-})
+// let pool = new Pool({
+//     user: "postgres",
+//     host: "localhost",
+//     database: "DMS",
+//     password: "admin",
+//     port: 5432
+// })
+
+// prod
+
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
 
 http.createServer(async (req, res) => {
 
@@ -374,6 +389,6 @@ http.createServer(async (req, res) => {
     }
 
 
-}).listen(3001, () => {
-    console.log('server is running in port 3001')
+}).listen(3001, PORT, () => {
+  console.log("Server running on port", PORT);
 })
