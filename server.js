@@ -284,53 +284,37 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
 
             let tokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1', [data.user_id]);
             let adminTokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id IN (SELECT id FROM users WHERE role=$1)', ['admin']);
-            
-            // Send notification to admin
             if (adminTokenResult.rows.length > 0) {
                 let adminFcmToken = adminTokenResult.rows[0].user_fcm;
                 let message = {
                     notification: {
-                        title: "📦 New Order Placed",
+                        title: "New Order Placed",
                         body: `You have a new order from ${data.user_name} for ${data.product_name}`
-                    },
-                    data: {
-                        orderId: result.rows[0].id.toString(),
-                        status: 'placed',
-                        icon: '/assets/dmsnotifi.png',
-                        badge: '/assets/dmsicon.png',
-                        url: '/admin/orders'
                     },
                     token: adminFcmToken
                 };  
                 try {
                     await admin.messaging().send(message);
-                    console.log("FCM notification sent to admin");
+                    console.log("FCM notification sent");
                 }
                 catch (err) {
                     console.log("FCM error:", err);
                 }
             }
             
-            // Send notification to user
+
             if (tokenResult.rows.length > 0) {
                 let userFcmToken = tokenResult.rows[0].user_fcm;
                 let message = {
                     notification: {
-                        title: "✅ Order Placed",
-                        body: `Your order #${result.rows[0].id} has been placed successfully!`
-                    },
-                    data: {
-                        orderId: result.rows[0].id.toString(),
-                        status: 'placed',
-                        icon: '/assets/dmsnotifi.png',
-                        badge: '/assets/dmsicon.png',
-                        url: '/orders'
+                        title: "Order Placed",
+                        body: `Your order ${result.rows[0].id} has been placed successfully!`
                     },
                     token: userFcmToken
                 };
                 try {
                     await admin.messaging().send(message);
-                    console.log("FCM notification sent to user");
+                    console.log("FCM notification sent");
                 }
                 catch (err) {   
                     console.log("FCM error:", err);
@@ -393,22 +377,15 @@ else if (req.url == '/updateOrder' && req.method == 'PATCH') {
 
             let message = {
                 notification: {
-                    title: "📝 Order Updated",
-                    body: `Your order #${id} quantity updated to ${data.quantity}`
-                },
-                data: {
-                    orderId: id.toString(),
-                    status: 'updated',
-                    icon: '/assets/dmsnotifi.png',
-                    badge: '/assets/dmsicon.png',
-                    url: '/orders'
+                    title: "Order Updated",
+                    body: `Your order ${id} quantity updated to ${data.quantity}`
                 },
                 token: userFcmToken
             };
 
             try {
                 await admin.messaging().send(message);
-                console.log("FCM notification sent for order update");
+                console.log("FCM notification sent");
             } catch (err) {
                 console.log("FCM error:", err);
             }
@@ -453,7 +430,6 @@ else if (req.url == '/updateOrder' && req.method == 'PATCH') {
     }
 
     // admin changing order status
-// admin changing order status
 else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
 
     let body = '';
@@ -464,92 +440,63 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
 
     req.on('end', async () => {
 
-        try {
+        let data = JSON.parse(body);
 
-            let data = JSON.parse(body);
+        let result = await pool.query(
+            'UPDATE orders SET order_status=$1 WHERE id=$2 AND user_id=$3 RETURNING *',
+            [data.order_status, data.id, data.user_id]
+        );
 
-            let result = await pool.query(
-                'UPDATE orders SET order_status=$1 WHERE id=$2 AND user_id=$3 RETURNING *',
-                [data.order_status, data.id, data.user_id]
-            );
+        let tokenResult = await pool.query(
+            'SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1',
+            [data.user_id]
+        );
 
-            let tokenResult = await pool.query(
-                'SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1',
-                [data.user_id]
-            );
+        let product_name = await pool.query('SELECT product_name FROM orders WHERE id=$1 AND user_id=$2', [data.id, data.user_id]);
+        if (tokenResult.rows.length > 0) {
 
-            let product_name = await pool.query(
-                'SELECT product_name FROM orders WHERE id=$1 AND user_id=$2',
-                [data.id, data.user_id]
-            );
-
-            let product = product_name.rows.length > 0
-                ? product_name.rows[0].product_name
-                : "your order";
-
-            if (tokenResult.rows.length > 0) {
-
-                let userFcmToken = tokenResult.rows[0].user_fcm;
-
-                let statusIcon = 'shopping_bag';
-                let statusEmoji = '📦';
-
-                if (data.order_status.toLowerCase() === 'packed') {
-                    statusIcon = 'inventory_2';
-                    statusEmoji = '📫';
-                } 
-                else if (data.order_status.toLowerCase() === 'shipped') {
-                    statusIcon = 'local_shipping';
-                    statusEmoji = '🚚';
-                } 
-                else if (data.order_status.toLowerCase() === 'delivered') {
-                    statusIcon = 'check_circle';
-                    statusEmoji = '✅';
-                }
-
-                let message = {
-                    notification: {
-                        title: `${statusEmoji} Order ${data.order_status}!`,
-                        body: `Your order for ${product} has been ${data.order_status}`,
-                        icon: 'https://dmsfrontend.netlify.app/assets/dmsnotifi.png',
-                        image: 'https://dmsfrontend.netlify.app/assets/dmsnotifiicon.png'
-                    },
-                    data: {
-                        orderId: data.id.toString(),
-                        status: data.order_status,
-                        url: '/orders'
-                    },
-                    token: userFcmToken
-                };
-
-                try {
-                    await admin.messaging().send(message);
-                    console.log("FCM notification sent:", data.id);
-                }
-                catch (err) {
-                    console.log("FCM error:", err);
-                }
+            let userFcmToken = tokenResult.rows[0].user_fcm;
+            // just iocns for different order status take emojis as icons for different order status placed packed shipped delivered 
+            let orderstatus_icon=['📦', '🕒', '🚚', '✅'];
+            let ordericon = orderstatus_icon[0]; // default icon
+            switch(data.order_status){
+                case 'placed':
+                    ordericon = '📦';
+                    break;
+                case 'packed':
+                    ordericon = '🕒';
+                    break;
+                case 'shipped':
+                    ordericon = '🚚';
+                    break;
             }
 
-            res.end(JSON.stringify({
-                status: 200,
-                response: true,
-                data: result.rows[0]
-            }));
+            let message = {
+                notification: {
+                    title: "Order Status Updated",
+                    body: `${ordericon} Your order for ${product_name.rows[0].product_name} has been ${data.order_status}`
+                },
+                token: userFcmToken
+            };
+
+            try {
+                await admin.messaging().send(message);
+                console.log("FCM notification sent");
+            }
+            catch (err) {
+                console.log("FCM error:", err);
+            }
 
         }
-        catch (err) {
 
-            console.log("Server error:", err);
-
-            res.end(JSON.stringify({
-                status: 500,
-                response: false,
-                message: "Server error"
-            }));
-        }
+        res.end(JSON.stringify({
+            status: 200,
+            response: true,
+            data: result.rows[0]
+        }));
 
     });
+
 }
     // add to wish list
     else if (req.url == '/addToWishlist' && req.method == 'POST') {
