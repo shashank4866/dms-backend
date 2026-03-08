@@ -452,6 +452,7 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
             [data.user_id]
         );
 
+        let product_name = await pool.query('SELECT product_name FROM orders WHERE id=$1 AND user_id=$2', [data.id, data.user_id]);
         if (tokenResult.rows.length > 0) {
 
             let userFcmToken = tokenResult.rows[0].user_fcm;
@@ -459,7 +460,7 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
             let message = {
                 notification: {
                     title: "Order Status Updated",
-                    body: `Your order ${data.id} status updated to ${data.order_status}`
+                    body: ` Your order for ${product_name.rows[0].product_name} has been ${data.order_status}`
                 },
                 token: userFcmToken
             };
