@@ -142,12 +142,25 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
 
     // get all users
     else if (req.url == '/getUsers' && req.method == 'GET') {
-        let result = await pool.query('SELECT * FROM users');
+        let result = await pool.query(`
+            SELECT 
+                u.*, 
+                COUNT(o.id) as total_orders, 
+                COALESCE(SUM(o.total_price), 0) as total_spent 
+            FROM users u 
+            LEFT JOIN orders o ON u.id = o.user_id 
+            GROUP BY u.id
+            ORDER BY u.id DESC
+        `);
         // badse to convert image buffer to base64 string
         let users = result.rows.map(user => {
             if (user.user_img && Buffer.isBuffer(user.user_img)) {
                 user.user_img = user.user_img.toString('base64');
             }
+            // format total_orders to number
+            user.total_orders = parseInt(user.total_orders, 10);
+            // format total_spent to a number to easily show on frontend
+            user.total_spent = parseFloat(user.total_spent).toFixed(2);
             return user;
         });
         res.end(
@@ -166,21 +179,48 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
         req.on('data', chunk => {
             body += chunk.toString();
         }); 
-        req.on('end',async ()=>{
-            let data=JSON.parse(body);
-            let result = await pool.query('UPDATE users SET user_img=$1 WHERE id=$2',[data.user_img,data.id]);
-
-            res.end(
-                JSON.stringify(
-                    {
-                        status:200,
-                        resposne:"user profile upadted succesfully",
-                        data:result.rows
+        req.on('end', async () => {
+            try {
+                let data = JSON.parse(body);
+                
+                let imageBuffer = null;
+                if (data.user_img) {
+                    if (data.user_img.includes(';base64,')) {
+                        const base64Data = data.user_img.split(';base64,').pop();
+                        imageBuffer = Buffer.from(base64Data, 'base64');
+                    } else {
+                        imageBuffer = Buffer.from(data.user_img, 'base64');
                     }
-                )
-            )
+                }
 
-        })
+                let result = await pool.query(
+                    'UPDATE users SET user_img=$1 WHERE id=$2 RETURNING *',
+                    [imageBuffer, data.id]
+                );
+
+                if (result.rows.length === 0) {
+                    res.end(JSON.stringify({ status: 404, success: false, message: 'User not found' }));
+                    return;
+                }
+
+                let updatedUser = result.rows[0];
+                if (updatedUser.user_img && Buffer.isBuffer(updatedUser.user_img)) {
+                    updatedUser.user_img = updatedUser.user_img.toString('base64');
+                }
+
+                res.end(
+                    JSON.stringify({
+                        status: 200,
+                        success: true,
+                        message: "user profile updated succesfully",
+                        data: updatedUser
+                    })
+                );
+            } catch (err) {
+                console.log(err);
+                res.end(JSON.stringify({ status: 500, success: false, message: "Server error" }));
+            }
+        });
     }
     // getting all products
     else if (req.url == '/getProducts' && req.method == 'GET') {
@@ -246,95 +286,211 @@ if (req.url == '/userRegestration' && req.method == 'POST') {
             )
         })
     }
-    // place order
-    else if (req.url == '/placeOrder' && req.method == 'POST') {
+    // update a product completely
+    else if (req.url == '/updateProduct' && req.method == 'PATCH') {
         let body = '';
-
-        req.on('data', chucnk => {
-            body += chucnk
-            console.log(body)
-        })
-
-
-        // checking if the product is in stock
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
         req.on('end', async () => {
-            let data = JSON.parse(body);
-            // let result = await pool.query('SELECT stock FROM products WHERE id=$1 ',[data.product_id]);
-            // if(result.rows[0].stock < data.quantity){
-            //     res.end(    
-            //         JSON.stringify(
-            //             {
-            //                 status:400,
-            //                 response:'false',
-            //                 message:'Product is out of stock'
-            //             }
-            //         )
-            //     )
-            // }
-            // else{
-            // 
-            // reducing the stock of the product
-            // let newStock = result.rows[0].stock - data.quantity;
-            // await pool.query('UPDATE products SET stock=$1 WHERE id=$2',[newStock,data.product_id]);
+            try {
+                let data = JSON.parse(body);
+                let result = await pool.query(
+                    'UPDATE products SET name=$1, description=$2, price=$3, stock=$4, category=$5, image_url=$6 WHERE id=$7 RETURNING *',
+                    [data.name, data.description, data.price, data.stock, data.category, data.image_url, data.id]
+                );
 
-            // inserting the order
-            let result = await pool.query('INSERT INTO orders(user_id, user_name, product_id, product_name, quantity, total_price) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
-                [data.user_id, data.user_name, data.product_id, data.product_name, data.quantity, data.total_price]
-            );
+                if (result.rows.length === 0) {
+                    res.end(JSON.stringify({ status: 404, response: false, message: 'Product not found' }));
+                    return;
+                }
 
-            let tokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1', [data.user_id]);
-            let adminTokenResult = await pool.query('SELECT user_fcm FROM usersfcmtoken WHERE user_id IN (SELECT id FROM users WHERE role=$1)', ['admin']);
-            if (adminTokenResult.rows.length > 0) {
-                let adminFcmToken = adminTokenResult.rows[0].user_fcm;
-                let message = {
-                    notification: {
-                        title: "New Order Placed",
-                        body: `You have a new order from ${data.user_name} for ${data.product_name}`
-                    },
-                    token: adminFcmToken
-                };  
-                try {
-                    await admin.messaging().send(message);
-                    console.log("FCM notification sent");
-                }
-                catch (err) {
-                    console.log("FCM error:", err);
-                }
+                res.end(JSON.stringify({
+                    status: 200,
+                    response: true,
+                    data: result.rows[0],
+                    message: "Product updated successfully"
+                }));
+            } catch (err) {
+                console.log("UPDATE PRODUCT ERROR:", err);
+                res.end(JSON.stringify({ status: 500, response: false, message: "Server error" }));
             }
-            
-
-            if (tokenResult.rows.length > 0) {
-                let userFcmToken = tokenResult.rows[0].user_fcm;
-                let message = {
-                    notification: {
-                        title: "Order Placed",
-                        body: `Your order ${result.rows[0].id} has been placed successfully!`
-                    },
-                    token: userFcmToken
-                };
-                try {
-                    await admin.messaging().send(message);
-                    console.log("FCM notification sent");
-                }
-                catch (err) {   
-                    console.log("FCM error:", err);
-                }
-            }
-
-
-
-            res.end(
-                JSON.stringify(
-                    {
-                        status: 200,
-                        response: 'true',
-                        data: result.rows[0]
-                    }
-                )
-            )
-            // }
-        })
+        });
     }
+    // update product stock
+    else if (req.url == '/updateStock' && req.method == 'PATCH') {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+        req.on('end', async () => {
+            try {
+                let data = JSON.parse(body);
+                let result = await pool.query(
+                    'UPDATE products SET stock=$1 WHERE id=$2 RETURNING *',
+                    [data.stock, data.id]
+                );
+
+                if (result.rows.length === 0) {
+                    res.end(JSON.stringify({ status: 404, response: false, message: 'Product not found' }));
+                    return;
+                }
+
+                res.end(JSON.stringify({
+                    status: 200,
+                    response: true,
+                    data: result.rows[0],
+                    message: "Stock updated successfully"
+                }));
+            } catch (err) {
+                console.log("UPDATE STOCK ERROR:", err);
+                res.end(JSON.stringify({ status: 500, response: false, message: "Server error" }));
+            }
+        });
+    }
+    // place order
+  else if (req.url == '/placeOrder' && req.method == 'POST') {
+
+let body = '';
+
+req.on('data', chunk => {
+    body += chunk.toString();
+});
+
+req.on('end', async () => {
+
+    try {
+
+        let data = JSON.parse(body);
+
+        // 1️⃣ Get product stock
+        let productResult = await pool.query(
+            'SELECT stock FROM products WHERE id=$1',
+            [data.product_id]
+        );
+
+        if (productResult.rows.length === 0) {
+            res.end(JSON.stringify({
+                status:404,
+                response:false,
+                message:"Product not found"
+            }));
+            return;
+        }
+
+        let currentStock = productResult.rows[0].stock;
+
+        // 2️⃣ Check stock availability
+        if (currentStock < data.quantity) {
+
+            res.end(JSON.stringify({
+                status:400,
+                response:false,
+                message:"Product is out of stock"
+            }));
+
+            return;
+        }
+
+        // 3️⃣ Insert order
+        let result = await pool.query(
+            `INSERT INTO orders(user_id,user_name,product_id,product_name,quantity,total_price)
+             VALUES($1,$2,$3,$4,$5,$6)
+             RETURNING *`,
+            [
+                data.user_id,
+                data.user_name,
+                data.product_id,
+                data.product_name,
+                data.quantity,
+                data.total_price
+            ]
+        );
+
+        // 4️⃣ Reduce product stock
+        let newStock = currentStock - data.quantity;
+
+        await pool.query(
+            'UPDATE products SET stock=$1 WHERE id=$2',
+            [newStock, data.product_id]
+        );
+
+        // 5️⃣ Get user FCM token
+        let tokenResult = await pool.query(
+            'SELECT user_fcm FROM usersfcmtoken WHERE user_id=$1',
+            [data.user_id]
+        );
+
+        // 6️⃣ Get admin FCM token
+        let adminTokenResult = await pool.query(
+            'SELECT user_fcm FROM usersfcmtoken WHERE user_id IN (SELECT id FROM users WHERE role=$1)',
+            ['admin']
+        );
+
+        // 7️⃣ Send notification to admin
+        if (adminTokenResult.rows.length > 0) {
+
+            let adminFcmToken = adminTokenResult.rows[0].user_fcm;
+
+            let message = {
+                notification: {
+                    title: "New Order Placed",
+                    body: `You have a new order from ${data.user_name} for ${data.product_name}`
+                },
+                token: adminFcmToken
+            };
+
+            try {
+                await admin.messaging().send(message);
+                console.log("Admin FCM notification sent");
+            } catch (err) {
+                console.log("Admin FCM error:", err);
+            }
+        }
+
+        // 8️⃣ Send notification to user
+        if (tokenResult.rows.length > 0) {
+
+            let userFcmToken = tokenResult.rows[0].user_fcm;
+
+            let message = {
+                notification: {
+                    title: "Order Placed",
+                    body: `Your order ${result.rows[0].id} has been placed successfully!`
+                },
+                token: userFcmToken
+            };
+
+            try {
+                await admin.messaging().send(message);
+                console.log("User FCM notification sent");
+            } catch (err) {
+                console.log("User FCM error:", err);
+            }
+        }
+
+        // 9️⃣ Response
+        res.end(JSON.stringify({
+            status:200,
+            response:true,
+            data: result.rows[0]
+        }));
+
+    } catch(err) {
+
+        console.log("ORDER ERROR:", err);
+
+        res.end(JSON.stringify({
+            status:500,
+            response:false,
+            message:"Server error"
+        }));
+
+    }
+
+});
+
+}
     // user changing order status
 else if (req.url == '/updateOrder' && req.method == 'PATCH') {
 
@@ -507,6 +663,8 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
         req.on('end', async () => {
             let data = JSON.parse(body);
             let result = await pool.query('INSERT INTO wishlist(pid, name,price, category,image_url,user_id,stock) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *', [data.pid, data.name, data.price, data.category, data.image_url, data.user_id, data.stock]);
+            // update wishlist status in products table
+            await pool.query('UPDATE products SET wishlist_status=true WHERE id=$1', [data.pid]);
             res.end(
                 JSON.stringify(
                     {
@@ -522,13 +680,12 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
         let id = req.url.split('/')[2];
         let result = await pool.query('SELECT * FROM wishlist WHERE user_id=$1', [id]);
         // badse to convert image buffer to base64 string
-        let wishlistItems = result.rows.map(item => {
-            if (item.image_url && Buffer.isBuffer(item.image_url)) {
-                item.image_url = item.image_url.toString('base64');
+          let wishlistItems = result.rows.map(product => {
+            if (product.image_url && Buffer.isBuffer(product.image_url)) {
+                product.image_url = product.image_url.toString();
             }
-            return item;
-        }
-        );
+            return product;
+        });
         res.end(
             JSON.stringify(
                 {
@@ -564,12 +721,12 @@ else if (req.url == '/updateOrderStatus' && req.method == 'PATCH') {
         let id = req.url.split('/')[2];
         let result = await pool.query('SELECT * FROM cart WHERE user_id=$1', [id]);
         // badse to convert image buffer to base64 string
-        let cartItems = result.rows.map(item => {
-            if (item.image_url && Buffer.isBuffer(item.image_url)) {
-                item.image_url = item.image_url.toString('base64');
+           let cartItems = result.rows.map(product => {
+            if (product.image_url && Buffer.isBuffer(product.image_url)) {
+                product.image_url = product.image_url.toString();
             }
-            return item;
-        }); 
+            return product;
+        });
         res.end(
             JSON.stringify(
                 {
